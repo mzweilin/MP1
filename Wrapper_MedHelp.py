@@ -34,21 +34,22 @@ class Thread:
       
     def add_posts(self, posts):
         for post in posts:
-            print post.get_dict()
+            #print post.get_dict()
             self.info['thread'].append(post.get_dict())
 
     def to_json(self):
         return json.dumps(self.info)
     
 class Wrapper:
-    def __init__(self):
+    def __init__(self, logger):
+        self.logger = logger
         pass
         
     def parse_file(self, file_path):
         self.soup = BeautifulSoup(open(file_path))
         self.postElms = []
         self.thread = self.extract_all()
-        print "Parse %s" % file_path
+        self.logger.info("Parse %s" % file_path)
     
     def parse_extend_file(self, file_path):
         self.soup = BeautifulSoup(open(file_path))
@@ -59,7 +60,7 @@ class Wrapper:
             if "post_" in elm.get('id'):
                 m_posts.append(self.extract_post(elm))
         self.thread.add_posts(m_posts)
-        print "Extend parse %s" % file_path
+        self.logger.info("Extend parse %s" % file_path)
         
     
     def to_json(self):
@@ -69,9 +70,12 @@ class Wrapper:
         thread = self.extract_thread_info()
         m_posts = []
         
-        first_post = self.extract_first_post(self.postElms.pop(0))
-        m_posts.append(first_post)
-        
+        try:
+            first_post = self.extract_first_post(self.postElms[0])
+            m_posts.append(first_post)
+            self.postElms.pop(0)
+        except:
+            self.logger.warning("can not parse first post.")
         
         for elm in self.postElms:
             if "post_" in elm.get('id'):
@@ -123,30 +127,33 @@ class Wrapper:
         p = Post(elm.get('id'))
         user_info = elm.find(attrs={'class': 'user_info'})
         
+        # Some thread can have incompete post: http://www.medhelp.org/posts/Eye-Care/Seeing-light-from-far-in-night/show/39736
         #post_question_forum_to
-        replyToID = user_info.find(attrs={'class': 'post_question_forum_to'})
-        if replyToID:
-            if replyToID.find('a'):
-                p.setReplyToID(replyToID.find('a').get('href'))
-            else:
-                p.setReplyToID(self.extractReplyToID(replyToID.contents[0]))
+        if user_info:
+            replyToID = user_info.find(attrs={'class': 'post_question_forum_to'})
+            if replyToID:
+                if replyToID.find('a'):
+                    p.setReplyToID(replyToID.find('a').get('href'))
+                else:
+                    p.setReplyToID(self.extractReplyToID(replyToID.contents[0]))
         
         #timestamp
         author_info = elm.find('div', attrs={'class': 'question_by'})
-        author_name = author_info.find('a')
+        if author_info:
+            author_name = author_info.find('a')
 
-        #author_info.contents[0]
-        #author_info.get("href")
-        p.setAuthor(author_name.contents[0])
-        p.setAuthorID(author_name.get("href"))
+            #author_info.contents[0]
+            #author_info.get("href")
+            p.setAuthor(author_name.contents[0])
+            p.setAuthorID(author_name.get("href"))
         
-        date_text = ""
-        for span in author_info.find_all('span'):
-            #print span.get('class')
-            if span.get('class') and 'separator' in span.get('class'):
-                date_text = str(span.next.next).strip()
-        
-        p.setDate(self.ts_from_text(date_text))
+            date_text = ""
+            for span in author_info.find_all('span'):
+                #print span.get('class')
+                if span.get('class') and 'separator' in span.get('class'):
+                    date_text = str(span.next.next).strip()
+            
+            p.setDate(self.ts_from_text(date_text))
         
         #post content
         contents = unicode("")
@@ -167,15 +174,32 @@ class Wrapper:
             return timestamp
         except:
             return time.localtime()
+
+def get_logger(file_name = None):
+    import logging
+    
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+
+    # create a file handler
+    
+    if file_name:
+        handler = logging.FileHandler(file_name)
+        handler.setLevel(logging.INFO)
+
+        # create a logging format
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+
+        # add the handlers to the logger
+        logger.addHandler(handler)
+    
+    return logger
         
 if __name__ == "__main__":
-    wrapper = Wrapper()
-    for page_num in range(1,6):
-        html_file = "./html_samples/wx4ed-thread-269787-p%d.html" % page_num
-        if page_num == 1:
-            wrapper.parse_file(html_file)
-        else:
-            wrapper.parse_extend_file(html_file)
-        
+    file_path = "wx4ed-thread-39736-p1.html"
+    wrapper = Wrapper(get_logger())
+    wrapper.parse_file(file_path)
     print wrapper.to_json()
     
